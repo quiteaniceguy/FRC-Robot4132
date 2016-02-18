@@ -1,15 +1,20 @@
 
 package org.usfirst.frc.team4132.robot;
 
+import edu.wpi.first.wpilibj.CANJaguar;
 import edu.wpi.first.wpilibj.CameraServer;
+import edu.wpi.first.wpilibj.DoubleSolenoid;
 import edu.wpi.first.wpilibj.IterativeRobot;
 import edu.wpi.first.wpilibj.Jaguar;
 import edu.wpi.first.wpilibj.Joystick;
 import edu.wpi.first.wpilibj.RobotDrive;
 import edu.wpi.first.wpilibj.RobotDrive.MotorType;
+import edu.wpi.first.wpilibj.Servo;
 import edu.wpi.first.wpilibj.command.Command;
 import edu.wpi.first.wpilibj.command.Scheduler;
 import edu.wpi.first.wpilibj.livewindow.LiveWindow;
+
+import org.usfirst.frc.team4132.robot.Robot.PistonStates_t;
 import org.usfirst.frc.team4132.robot.commands.ExampleCommand;
 import org.usfirst.frc.team4132.robot.subsystems.ExampleSubsystem;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
@@ -26,6 +31,12 @@ public class Robot extends IterativeRobot {
 
 	public static final ExampleSubsystem exampleSubsystem = new ExampleSubsystem();
 	public static OI oi;
+	private final int BUTTONCOUNT=4;
+	private final int A=0,B=1,X=2,Y=3;
+	private final int CAMERAPORT=1;
+	int buttonPressed=-1;
+	int numberOfButtonsPressed=0;
+	
 
     Command autonomousCommand;
     SendableChooser chooser;
@@ -36,7 +47,18 @@ public class Robot extends IterativeRobot {
     
     CameraServer server;
     
-    
+    DoubleSolenoid liftSolenoid;
+    DoubleSolenoid pickUpSolenoid;
+    public Button[] Buttons=new Button[BUTTONCOUNT];
+    public boolean[] Edges=new boolean[BUTTONCOUNT];
+    enum PistonStates_t{
+		IDLE,PISTONOUT,WAIT,PISTONIN
+	}
+    PistonStates_t liftPistonState=PistonStates_t.IDLE;
+    PistonStates_t pickUpPistonState=PistonStates_t.IDLE;
+    int autonomousLoopCounter=0;
+    Servo cameraServo;
+   
     
 
     /**
@@ -44,6 +66,10 @@ public class Robot extends IterativeRobot {
      * used for any initialization code.
      */
     public void robotInit() {
+    	for(int i=0;i<Buttons.length;i++){
+    		Buttons[i]=new Button(i, controller);
+    		Edges[i]=false;
+    	}
 		oi = new OI();
         chooser = new SendableChooser();
         chooser.addDefault("Default Auto", new ExampleCommand());
@@ -55,6 +81,16 @@ public class Robot extends IterativeRobot {
         server=CameraServer.getInstance();
         server.setQuality(50);
         server.startAutomaticCapture("cam0");
+        
+        liftSolenoid=new DoubleSolenoid(0,1);
+        pickUpSolenoid=new DoubleSolenoid(2,3);
+        
+		pickUpSolenoid.set(DoubleSolenoid.Value.kForward);
+		pickUpPistonState=PistonStates_t.PISTONOUT;
+		
+		cameraServo=new Servo(CAMERAPORT);
+		
+		
         
         //myRobot.setInvertedMotor(MotorType.kFrontLeft, true);
         //myRobot.setInvertedMotor(MotorType.kFrontLeft, true);
@@ -84,8 +120,17 @@ public class Robot extends IterativeRobot {
 	 * or additional comparisons to the switch structure below with additional strings & commands.
 	 */
     public void autonomousInit() {
-        autonomousCommand = (Command) chooser.getSelected();
-        
+    	boolean[] buttonValues = {SmartDashboard.getBoolean("DB/Button 0", false),
+    			SmartDashboard.getBoolean("DB/Button 1", false),
+    			SmartDashboard.getBoolean("DB/Button 2", false),
+    			SmartDashboard.getBoolean("DB/Button 3", false)};
+    	for(int i=0;i<buttonValues.length;i++){
+    		if(buttonValues[i]==true){
+    			buttonPressed=i;
+    			numberOfButtonsPressed++;
+    		}
+    	}
+        autonomousCommand = (Command) chooser.getSelected();  
 		/* String autoSelected = SmartDashboard.getString("Auto Selector", "Default");
 		switch(autoSelected) {
 		case "My Auto":
@@ -106,8 +151,35 @@ public class Robot extends IterativeRobot {
      */
     public void autonomousPeriodic() {
         Scheduler.getInstance().run();
-        ///drives robot
+        autonomousLoopCounter++;
+        if(autonomousLoopCounter<20){
+    		pickUpSolenoid.set(DoubleSolenoid.Value.kForward);
+        }
+        ///runs programming according to button pressed in driver view
+		
+        if(numberOfButtonsPressed==1){
+        	switch(buttonPressed){
+        	
+        	case 1:
+        		////if button one is pressed
+        		break;
+        	case 2:
+        		/////if buttton 2 is pressed etc.....
+        		break;
+        	case 3:
+        		break;
+        	case 4:
+        		break;
+        	default:
+        		////runs the default code
+        		System.out.println("no button or multiple buttons selected");
+        		break;
+        	}
+        		
+        	
+        }
         
+              
     }
 
     public void teleopInit() {
@@ -123,18 +195,50 @@ public class Robot extends IterativeRobot {
      */
     public void teleopPeriodic() {
         Scheduler.getInstance().run();
-        
+        ///updates buttons values by asking for if is edge
+        for(int i=0;i<Buttons.length;i++){
+        	Edges[i]=Buttons[i].isEdge();
+        }
+        ///drives the robot
         myRobot.arcadeDrive(controller.getRawAxis(0),controller.getRawAxis(1)*-1,true);
         
-        ///controlls wheel that gets and shoots vball
-        if(controller.getRawAxis(5)<0){
-        	jaguar.set(controller.getRawAxis(5)*controller.getRawAxis(5)*.3);
+        ///lift thing for howards lift system
+        if(controller.getRawAxis(5)>0){
+        	jaguar.set(controller.getRawAxis(5)*controller.getRawAxis(5)*.35);
         }
-        else if(controller.getRawAxis(5)>0){
-        	jaguar.set(controller.getRawAxis(5)*controller.getRawAxis(5)*.75*-1);
+        else if(controller.getRawAxis(5)<0){
+        	jaguar.set(controller.getRawAxis(5)*controller.getRawAxis(5)*.35*-1);
 
         }
+        
+        ///contrrols the solenoids that lift the robot off the ground CHNAGE THE GETRAWBUTTON TO BUTTON CLASS
+        if(controller.getRawButton(1)){
+    		liftSolenoid.set(DoubleSolenoid.Value.kForward);
+        }
+        if(controller.getRawButton(2)){
+        	liftSolenoid.set(DoubleSolenoid.Value.kReverse);
+        }
+        if(controller.getRawButton(3)){
+        	pickUpSolenoid.set(DoubleSolenoid.Value.kForward);
+        }
+        if(controller.getRawButton(4)){
+        	pickUpSolenoid.set(DoubleSolenoid.Value.kReverse);
+        }
+        ////moves camerservo up and down
+        double cameraMovement=0;
+        double cameraPosition=cameraServo.getPosition();
+        if(controller.getRawButton(5)){
+        	cameraMovement+=.05;
+        }
+        if(controller.getRawButton(6)){
+        	cameraMovement-=.05;
+        }
+        cameraPosition+=cameraMovement;
+        cameraServo.setPosition(cameraPosition);
+        
+       
     }
+    
     
     /**
      * This function is called periodically during test mode
