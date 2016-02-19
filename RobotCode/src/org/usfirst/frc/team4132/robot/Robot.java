@@ -10,6 +10,7 @@ import edu.wpi.first.wpilibj.Joystick;
 import edu.wpi.first.wpilibj.RobotDrive;
 import edu.wpi.first.wpilibj.RobotDrive.MotorType;
 import edu.wpi.first.wpilibj.Servo;
+import edu.wpi.first.wpilibj.Ultrasonic;
 import edu.wpi.first.wpilibj.command.Command;
 import edu.wpi.first.wpilibj.command.Scheduler;
 import edu.wpi.first.wpilibj.livewindow.LiveWindow;
@@ -30,12 +31,16 @@ import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 public class Robot extends IterativeRobot {
 
 	public static final ExampleSubsystem exampleSubsystem = new ExampleSubsystem();
-	public static OI oi;
 	private final int BUTTONCOUNT=4;
-	private final int A=0,B=1,X=2,Y=3;
+	private final int A=1,B=2,X=3,Y=4, LTRIGGER=5,RTRIGGER=6;
 	private final int CAMERAPORT=1;
-	int buttonPressed=-1;
-	int numberOfButtonsPressed=0;
+	private final int[]	LIFTSOLENOIDPORT={0,1};
+	private final int[]	PICKUPSOLENOIDPORT={2,3};
+	private final int[] ROBOTDRIVEPORT={2,0,3,1};
+	private final int CAMERASENSORPORT[]={6,7};
+	public static OI oi;
+	private int buttonPressed=-1;
+	private int numberOfButtonsPressed=0;
 	
 
     Command autonomousCommand;
@@ -43,7 +48,6 @@ public class Robot extends IterativeRobot {
     
     RobotDrive myRobot;
     Joystick controller;
-    Jaguar jaguar;
     
     CameraServer server;
     
@@ -56,9 +60,14 @@ public class Robot extends IterativeRobot {
 	}
     PistonStates_t liftPistonState=PistonStates_t.IDLE;
     PistonStates_t pickUpPistonState=PistonStates_t.IDLE;
-    int autonomousLoopCounter=0;
+    public static int autonomousLoopCounter=0;
     Servo cameraServo;
+    Ultrasonic cameraSensor; 
    
+    private double leftXAxis;
+    private double leftYAxis;
+    private double rightXAxis;
+    private double rightYAxis;
     
 
     /**
@@ -76,20 +85,19 @@ public class Robot extends IterativeRobot {
 //        chooser.addObject("My Auto", new MyAutoCommand());
         SmartDashboard.putData("Auto mode", chooser);
         
-        myRobot=new RobotDrive(3,0);
-        jaguar=new Jaguar(6);
+        myRobot=new RobotDrive(ROBOTDRIVEPORT[0],ROBOTDRIVEPORT[1],ROBOTDRIVEPORT[2],ROBOTDRIVEPORT[3]);
         server=CameraServer.getInstance();
         server.setQuality(50);
         server.startAutomaticCapture("cam0");
         
-        liftSolenoid=new DoubleSolenoid(0,1);
-        pickUpSolenoid=new DoubleSolenoid(2,3);
+        liftSolenoid=new DoubleSolenoid(LIFTSOLENOIDPORT[0],LIFTSOLENOIDPORT[1]);
+        pickUpSolenoid=new DoubleSolenoid(PICKUPSOLENOIDPORT[0],PICKUPSOLENOIDPORT[1]);
         
 		pickUpSolenoid.set(DoubleSolenoid.Value.kForward);
 		pickUpPistonState=PistonStates_t.PISTONOUT;
 		
 		cameraServo=new Servo(CAMERAPORT);
-		
+		cameraSensor=new Ultrasonic(CAMERASENSORPORT[0],CAMERASENSORPORT[1]);
 		
         
         //myRobot.setInvertedMotor(MotorType.kFrontLeft, true);
@@ -195,46 +203,49 @@ public class Robot extends IterativeRobot {
      */
     public void teleopPeriodic() {
         Scheduler.getInstance().run();
+        ///gets values from joystick on the controller
+        leftXAxis=controller.getRawAxis(0);
+    	leftYAxis=controller.getRawAxis(1)*-1;
+    	rightXAxis=controller.getRawAxis(4);
+    	rightYAxis=controller.getRawAxis(5)*-1;
         ///updates buttons values by asking for if is edge
         for(int i=0;i<Buttons.length;i++){
         	Edges[i]=Buttons[i].isEdge();
         }
         ///drives the robot
-        myRobot.arcadeDrive(controller.getRawAxis(0),controller.getRawAxis(1)*-1,true);
+        myRobot.setMaxOutput(.35);
+        myRobot.arcadeDrive(leftYAxis,leftXAxis*-1,true);
         
-        ///lift thing for howards lift system
-        if(controller.getRawAxis(5)>0){
-        	jaguar.set(controller.getRawAxis(5)*controller.getRawAxis(5)*.35);
-        }
-        else if(controller.getRawAxis(5)<0){
-        	jaguar.set(controller.getRawAxis(5)*controller.getRawAxis(5)*.35*-1);
-
-        }
+      
+      
         
         ///contrrols the solenoids that lift the robot off the ground CHNAGE THE GETRAWBUTTON TO BUTTON CLASS
-        if(controller.getRawButton(1)){
+        if(Buttons[A].isPressed()){
     		liftSolenoid.set(DoubleSolenoid.Value.kForward);
         }
-        if(controller.getRawButton(2)){
+        if(Buttons[B].isPressed()){
         	liftSolenoid.set(DoubleSolenoid.Value.kReverse);
         }
-        if(controller.getRawButton(3)){
+        if(Buttons[X].isPressed()){
         	pickUpSolenoid.set(DoubleSolenoid.Value.kForward);
         }
-        if(controller.getRawButton(4)){
+        if(Buttons[Y].isPressed()){
         	pickUpSolenoid.set(DoubleSolenoid.Value.kReverse);
         }
         ////moves camerservo up and down
-        double cameraMovement=0;
-        double cameraPosition=cameraServo.getPosition();
-        if(controller.getRawButton(5)){
+    	double cameraMovement=0;
+    	double cameraPosition=cameraServo.getPosition();
+
+        if(Buttons[LTRIGGER].isPressed() && !Buttons[RTRIGGER].isPressed()){
         	cameraMovement+=.05;
+        	cameraPosition+=cameraMovement;
+        	cameraServo.setPosition(cameraPosition);
         }
-        if(controller.getRawButton(6)){
+        if(!Buttons[LTRIGGER].isPressed() && Buttons[RTRIGGER].isPressed()){
         	cameraMovement-=.05;
+        	cameraPosition+=cameraMovement;
+        	cameraServo.setPosition(cameraPosition);
         }
-        cameraPosition+=cameraMovement;
-        cameraServo.setPosition(cameraPosition);
         
        
     }
@@ -245,5 +256,8 @@ public class Robot extends IterativeRobot {
      */
     public void testPeriodic() {
         LiveWindow.run();
+    }
+    public void openGate(){
+    	
     }
 }
