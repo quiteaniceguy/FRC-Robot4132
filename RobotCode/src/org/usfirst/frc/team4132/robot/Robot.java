@@ -3,6 +3,7 @@ package org.usfirst.frc.team4132.robot;
 
 import edu.wpi.first.wpilibj.CANJaguar;
 import edu.wpi.first.wpilibj.CameraServer;
+import edu.wpi.first.wpilibj.Compressor;
 import edu.wpi.first.wpilibj.DoubleSolenoid;
 import edu.wpi.first.wpilibj.IterativeRobot;
 import edu.wpi.first.wpilibj.Jaguar;
@@ -29,18 +30,18 @@ import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
  * directory.
  */
 public class Robot extends IterativeRobot {
-
+	
 	public static final ExampleSubsystem exampleSubsystem = new ExampleSubsystem();
 	private final int BUTTONCOUNT=4;
 	private final int A=1,B=2,X=3,Y=4, LTRIGGER=5,RTRIGGER=6;
 	private final int CAMERAPORT=1;
-	private final int[]	LIFTSOLENOIDPORT={0,1};
 	private final int[]	PICKUPSOLENOIDPORT={2,3};
 	private final int[] ROBOTDRIVEPORT={2,0,3,1};
 	private final int CAMERASENSORPORT[]={6,7};
+	private final int SHOOTERPORTS[]={1,2};
 	public static OI oi;
-	private int buttonPressed=-1;
-	private int numberOfButtonsPressed=0;
+	private int buttonInitPressed=-1;
+	private int numberOfInitButtonsPressed=0;
 	
 
     Command autonomousCommand;
@@ -51,18 +52,33 @@ public class Robot extends IterativeRobot {
     
     CameraServer server;
     
-    DoubleSolenoid liftSolenoid;
-    DoubleSolenoid pickUpSolenoid;
     public Button[] Buttons=new Button[BUTTONCOUNT];
     public boolean[] Edges=new boolean[BUTTONCOUNT];
+    
+    DoubleSolenoid pickUpSolenoid;
     enum PistonStates_t{
 		IDLE,PISTONOUT,WAIT,PISTONIN
 	}
-    PistonStates_t liftPistonState=PistonStates_t.IDLE;
     PistonStates_t pickUpPistonState=PistonStates_t.IDLE;
+    
+    CANJaguar[] shooter={new CANJaguar(SHOOTERPORTS[0]), new CANJaguar(SHOOTERPORTS[1])};
+    enum ShooterStates_t{
+    	REVERSE, FORWARD, IDLE
+    }
+    private int shooterTimer;
+    private ShooterStates_t shooterState;
+    
+    enum AutoDrawbridge{
+    	TOBRIDGE, LIFT,TO
+    }
+    
+    
     public static int autonomousLoopCounter=0;
     Servo cameraServo;
     Ultrasonic cameraSensor; 
+    
+    Compressor c=new Compressor(0);
+
    
     private double leftXAxis;
     private double leftYAxis;
@@ -75,13 +91,14 @@ public class Robot extends IterativeRobot {
      * used for any initialization code.
      */
     public void robotInit() {
+    	c.setClosedLoopControl(true);
+    	
     	for(int i=0;i<Buttons.length;i++){
     		Buttons[i]=new Button(i, controller);
     		Edges[i]=false;
     	}
-		oi = new OI();
-        chooser = new SendableChooser();
-        chooser.addDefault("Default Auto", new ExampleCommand());
+    	
+		
 //        chooser.addObject("My Auto", new MyAutoCommand());
         SmartDashboard.putData("Auto mode", chooser);
         
@@ -90,7 +107,6 @@ public class Robot extends IterativeRobot {
         server.setQuality(50);
         server.startAutomaticCapture("cam0");
         
-        liftSolenoid=new DoubleSolenoid(LIFTSOLENOIDPORT[0],LIFTSOLENOIDPORT[1]);
         pickUpSolenoid=new DoubleSolenoid(PICKUPSOLENOIDPORT[0],PICKUPSOLENOIDPORT[1]);
         
 		pickUpSolenoid.set(DoubleSolenoid.Value.kForward);
@@ -134,8 +150,8 @@ public class Robot extends IterativeRobot {
     			SmartDashboard.getBoolean("DB/Button 3", false)};
     	for(int i=0;i<buttonValues.length;i++){
     		if(buttonValues[i]==true){
-    			buttonPressed=i;
-    			numberOfButtonsPressed++;
+    			buttonInitPressed=i;
+    			numberOfInitButtonsPressed++;
     		}
     	}
         autonomousCommand = (Command) chooser.getSelected();  
@@ -165,8 +181,8 @@ public class Robot extends IterativeRobot {
         }
         ///runs programming according to button pressed in driver view
 		
-        if(numberOfButtonsPressed==1){
-        	switch(buttonPressed){
+        if(numberOfInitButtonsPressed==1){
+        	switch(buttonInitPressed){
         	
         	case 1:
         		////if button one is pressed
@@ -191,6 +207,8 @@ public class Robot extends IterativeRobot {
     }
 
     public void teleopInit() {
+    	shooterTimer=0;
+    	shooterState=ShooterStates_t.IDLE;
 		// This makes sure that the autonomous stops running when
         // teleop starts running. If you want the autonomous to 
         // continue until interrupted by another command, remove
@@ -218,14 +236,34 @@ public class Robot extends IterativeRobot {
         
       
       
-        
+        /////does the shooter "motion" for robot
+        switch(shooterState){
+        case IDLE:
+        	if(Buttons[B].isPressed()){
+        		shooterState=ShooterStates_t.REVERSE;
+        		shooterTimer=0;
+        	}
+        case REVERSE:
+        	//piston out
+        	shooter[0].set(-.35);
+        	shooter[1].set(-.35);
+        	if(shooterTimer++>25){
+        		shooterState=ShooterStates_t.FORWARD;
+        		shooterTimer=0;
+        	}
+        	break;
+        case FORWARD:
+        	shooter[0].set(.35);
+        	shooter[1].set(.35);
+        	if(shooterTimer++>25){
+        		shooterState=ShooterStates_t.IDLE;
+        		shooterTimer=0;
+        	}
+        	break;
+        }	
+    
         ///contrrols the solenoids that lift the robot off the ground CHNAGE THE GETRAWBUTTON TO BUTTON CLASS
-        if(Buttons[A].isPressed()){
-    		liftSolenoid.set(DoubleSolenoid.Value.kForward);
-        }
-        if(Buttons[B].isPressed()){
-        	liftSolenoid.set(DoubleSolenoid.Value.kReverse);
-        }
+       
         if(Buttons[X].isPressed()){
         	pickUpSolenoid.set(DoubleSolenoid.Value.kForward);
         }
