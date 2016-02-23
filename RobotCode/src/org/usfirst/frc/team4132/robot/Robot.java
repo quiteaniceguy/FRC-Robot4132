@@ -35,10 +35,11 @@ public class Robot extends IterativeRobot {
 	private final int BUTTONCOUNT=4;
 	private final int A=1,B=2,X=3,Y=4, LTRIGGER=5,RTRIGGER=6;
 	private final int CAMERAPORT=1;
-	private final int[]	PICKUPSOLENOIDPORT={2,3};
-	private final int[] ROBOTDRIVEPORT={2,0,3,1};
-	private final int CAMERASENSORPORT[]={6,7};
-	private final int SHOOTERPORTS[]={1,2};
+	private final int[]	PICKUPSOLENOIDPORT={0,1};
+	private final int[] ROBOTDRIVEIDS={2,0};
+	private final int SHOOTERIDS[]={1,2};
+	private final int[] BALLSONARID={6,7};
+	private final int[] OBSTACLESONARID={4,5};
 	public static OI oi;
 	private int buttonInitPressed=-1;
 	private int numberOfInitButtonsPressed=0;
@@ -47,35 +48,35 @@ public class Robot extends IterativeRobot {
     Command autonomousCommand;
     SendableChooser chooser;
     
-    RobotDrive myRobot;
-    Joystick controller;
+    private Ultrasonic ballSonar;
+    private Ultrasonic obstacleSonar;
+    private RobotDrive myRobot;
+    private Joystick controller;
+    private CANJaguar shooter1;
+    private CANJaguar shooter2;
+    private DoubleSolenoid pickUpSolenoid;
     
     CameraServer server;
     
     public Button[] Buttons=new Button[BUTTONCOUNT];
     public boolean[] Edges=new boolean[BUTTONCOUNT];
     
-    DoubleSolenoid pickUpSolenoid;
+    
+    
     enum PistonStates_t{
 		IDLE,PISTONOUT,WAIT,PISTONIN
 	}
     PistonStates_t pickUpPistonState=PistonStates_t.IDLE;
     
-    CANJaguar[] shooter={new CANJaguar(SHOOTERPORTS[0]), new CANJaguar(SHOOTERPORTS[1])};
     enum ShooterStates_t{
     	REVERSE, FORWARD, IDLE
     }
-    private int shooterTimer;
     private ShooterStates_t shooterState;
-    
-    enum AutoDrawbridge{
-    	TOBRIDGE, LIFT,TO
-    }
+    private int shooterTimer;
     
     
     public static int autonomousLoopCounter=0;
     Servo cameraServo;
-    Ultrasonic cameraSensor; 
     
     Compressor c=new Compressor(0);
 
@@ -90,6 +91,7 @@ public class Robot extends IterativeRobot {
      * This function is run when the robot is first started up and should be
      * used for any initialization code.
      */
+    ///runs the first time the robot is uploaded, or when the driver station turns on
     public void robotInit() {
     	c.setClosedLoopControl(true);
     	
@@ -102,7 +104,7 @@ public class Robot extends IterativeRobot {
 //        chooser.addObject("My Auto", new MyAutoCommand());
         SmartDashboard.putData("Auto mode", chooser);
         
-        myRobot=new RobotDrive(ROBOTDRIVEPORT[0],ROBOTDRIVEPORT[1],ROBOTDRIVEPORT[2],ROBOTDRIVEPORT[3]);
+        myRobot=new RobotDrive(new CANJaguar(ROBOTDRIVEIDS[0]),new CANJaguar(ROBOTDRIVEIDS[1]));
         server=CameraServer.getInstance();
         server.setQuality(50);
         server.startAutomaticCapture("cam0");
@@ -113,12 +115,17 @@ public class Robot extends IterativeRobot {
 		pickUpPistonState=PistonStates_t.PISTONOUT;
 		
 		cameraServo=new Servo(CAMERAPORT);
-		cameraSensor=new Ultrasonic(CAMERASENSORPORT[0],CAMERASENSORPORT[1]);
 		
+        ballSonar=new Ultrasonic(BALLSONARID[0],BALLSONARID[1]);
+        ballSonar.setAutomaticMode(true);
+        obstacleSonar=new Ultrasonic(OBSTACLESONARID[0],OBSTACLESONARID[1]);
+        obstacleSonar.setAutomaticMode(true);
         
+        shooter1=new CANJaguar(SHOOTERIDS[0]);
+        shooter2=new CANJaguar(SHOOTERIDS[1]);
+        shooter2.setInverted(true);
         //myRobot.setInvertedMotor(MotorType.kFrontLeft, true);
         //myRobot.setInvertedMotor(MotorType.kFrontLeft, true);
-        
     }
 	
 	/**
@@ -232,7 +239,7 @@ public class Robot extends IterativeRobot {
         }
         ///drives the robot
         myRobot.setMaxOutput(.35);
-        myRobot.arcadeDrive(leftYAxis,leftXAxis*-1,true);
+        myRobot.arcadeDrive(leftYAxis,leftXAxis*-1,true); /// Does a thing.
         
       
       
@@ -240,21 +247,12 @@ public class Robot extends IterativeRobot {
         switch(shooterState){
         case IDLE:
         	if(Buttons[B].isPressed()){
-        		shooterState=ShooterStates_t.REVERSE;
-        		shooterTimer=0;
-        	}
-        case REVERSE:
-        	//piston out
-        	shooter[0].set(-.35);
-        	shooter[1].set(-.35);
-        	if(shooterTimer++>25){
         		shooterState=ShooterStates_t.FORWARD;
         		shooterTimer=0;
         	}
-        	break;
         case FORWARD:
-        	shooter[0].set(.35);
-        	shooter[1].set(.35);
+        	shooter1.set(.35);
+        	shooter2.set(.35);
         	if(shooterTimer++>25){
         		shooterState=ShooterStates_t.IDLE;
         		shooterTimer=0;
@@ -284,6 +282,8 @@ public class Robot extends IterativeRobot {
         	cameraPosition+=cameraMovement;
         	cameraServo.setPosition(cameraPosition);
         }
+        //prints out sensor values in console, CHANGE LATER TO DISPLAY IN DRIVER STATION
+        System.out.println("ball sonar:"+String.valueOf(ballSonar.getRangeMM())+"  obstacle sonar:"+String.valueOf(obstacleSonar.getRangeMM()));
         
        
     }
