@@ -2,6 +2,7 @@
 package org.usfirst.frc.team4132.robot;
 
 import edu.wpi.first.wpilibj.CANJaguar;
+import edu.wpi.first.wpilibj.CANTalon;
 import edu.wpi.first.wpilibj.CameraServer;
 import edu.wpi.first.wpilibj.Compressor;
 import edu.wpi.first.wpilibj.DoubleSolenoid;
@@ -11,6 +12,7 @@ import edu.wpi.first.wpilibj.Joystick;
 import edu.wpi.first.wpilibj.RobotDrive;
 import edu.wpi.first.wpilibj.RobotDrive.MotorType;
 import edu.wpi.first.wpilibj.Servo;
+import edu.wpi.first.wpilibj.Spark;
 import edu.wpi.first.wpilibj.Ultrasonic;
 import edu.wpi.first.wpilibj.command.Command;
 import edu.wpi.first.wpilibj.command.Scheduler;
@@ -35,8 +37,10 @@ public class Robot extends IterativeRobot {
 	private final int BUTTONCOUNT=4;
 	private final int A=1,B=2,X=3,Y=4, LTRIGGER=5,RTRIGGER=6;
 	private final int CAMERAPORT=1;
-	private final int[]	PICKUPSOLENOIDPORT={0,1};
-	private final int[] ROBOTDRIVEIDS={2,0};
+	private final int[]	PICKUPSOLENOIDPORT={6,7};
+	private final int[] ROBOTDRIVEIDS={1,0};
+	private final int SPINBARID=2;
+	///using can
 	private final int SHOOTERIDS[]={1,2};
 	private final int[] BALLSONARID={6,7};
 	private final int[] OBSTACLESONARID={4,5};
@@ -44,17 +48,20 @@ public class Robot extends IterativeRobot {
 	private int buttonInitPressed=-1;
 	private int numberOfInitButtonsPressed=0;
 	
+	
 
     Command autonomousCommand;
     SendableChooser chooser;
     
     private Ultrasonic ballSonar;
     private Ultrasonic obstacleSonar;
+    
     private RobotDrive myRobot;
     private Joystick controller;
-    private CANJaguar shooter1;
-    private CANJaguar shooter2;
+    private CANTalon shooter1;
+    private CANTalon shooter2;
     private DoubleSolenoid pickUpSolenoid;
+    private Spark spinbar;
     
     CameraServer server;
     
@@ -74,11 +81,17 @@ public class Robot extends IterativeRobot {
     private ShooterStates_t shooterState;
     private int shooterTimer;
     
-    
+    enum PortcullisAutoStates_t{
+    	FORWARD1, STOP, LIFT, FORWARD2, IDLE;
+    }
+    private PortcullisAutoStates_t portcullisAutoState=PortcullisAutoStates_t.FORWARD1;
+    private int portcullisAutoCounter=0;
     public static int autonomousLoopCounter=0;
     Servo cameraServo;
     
     Compressor c=new Compressor(0);
+    
+    private SmartDashboard dashboard;
 
    
     private double leftXAxis;
@@ -104,7 +117,7 @@ public class Robot extends IterativeRobot {
 //        chooser.addObject("My Auto", new MyAutoCommand());
         SmartDashboard.putData("Auto mode", chooser);
         
-        myRobot=new RobotDrive(new CANJaguar(ROBOTDRIVEIDS[0]),new CANJaguar(ROBOTDRIVEIDS[1]));
+        myRobot=new RobotDrive(new Spark(ROBOTDRIVEIDS[0]),new Spark(ROBOTDRIVEIDS[1]));
         server=CameraServer.getInstance();
         server.setQuality(50);
         server.startAutomaticCapture("cam0");
@@ -121,9 +134,13 @@ public class Robot extends IterativeRobot {
         obstacleSonar=new Ultrasonic(OBSTACLESONARID[0],OBSTACLESONARID[1]);
         obstacleSonar.setAutomaticMode(true);
         
-        shooter1=new CANJaguar(SHOOTERIDS[0]);
-        shooter2=new CANJaguar(SHOOTERIDS[1]);
+        shooter1=new CANTalon(SHOOTERIDS[0]);
+        shooter2=new CANTalon(SHOOTERIDS[1]);
         shooter2.setInverted(true);
+        
+        spinbar=new Spark(SPINBARID);
+        
+        dashboard=new SmartDashboard();
         //myRobot.setInvertedMotor(MotorType.kFrontLeft, true);
         //myRobot.setInvertedMotor(MotorType.kFrontLeft, true);
     }
@@ -151,6 +168,7 @@ public class Robot extends IterativeRobot {
 	 * or additional comparisons to the switch structure below with additional strings & commands.
 	 */
     public void autonomousInit() {
+    	autonomousLoopCounter=0;
     	boolean[] buttonValues = {SmartDashboard.getBoolean("DB/Button 0", false),
     			SmartDashboard.getBoolean("DB/Button 1", false),
     			SmartDashboard.getBoolean("DB/Button 2", false),
@@ -161,6 +179,10 @@ public class Robot extends IterativeRobot {
     			numberOfInitButtonsPressed++;
     		}
     	}
+    	
+    	portcullisAutoCounter=0;
+    	portcullisAutoState=PortcullisAutoStates_t.FORWARD1;
+    	
         autonomousCommand = (Command) chooser.getSelected();  
 		/* String autoSelected = SmartDashboard.getString("Auto Selector", "Default");
 		switch(autoSelected) {
@@ -190,9 +212,38 @@ public class Robot extends IterativeRobot {
 		
         if(numberOfInitButtonsPressed==1){
         	switch(buttonInitPressed){
-        	
+        	///autonomous mode for portcullis
         	case 1:
-        		////if button one is pressed
+        		switch(portcullisAutoState){
+        		case FORWARD1:
+        			//robot move forward
+        			if(obstacleSonar.getRangeMM()<=25){
+        				portcullisAutoCounter=0;
+        				portcullisAutoState=PortcullisAutoStates_t.STOP;
+        			}
+        			break;
+        		case STOP:
+        			//stop robot.
+        			if(portcullisAutoCounter++>10){
+        				portcullisAutoCounter=0;
+        				portcullisAutoState=PortcullisAutoStates_t.LIFT;
+        			}
+        			break;
+        		case LIFT:
+        			//lift gate
+        			if(portcullisAutoCounter++>25){
+        				portcullisAutoCounter=0;
+        				portcullisAutoState=PortcullisAutoStates_t.FORWARD2;
+        			}
+        			break;
+        			
+        		case FORWARD2:
+        			//go forard again
+        			if(portcullisAutoCounter++>100){
+        				portcullisAutoCounter=0;
+        				portcullisAutoState=PortcullisAutoStates_t.IDLE;
+        			}
+        		}
         		break;
         	case 2:
         		/////if buttton 2 is pressed etc.....
@@ -213,9 +264,10 @@ public class Robot extends IterativeRobot {
               
     }
 
-    public void teleopInit() {
+	public void teleopInit() {
     	shooterTimer=0;
     	shooterState=ShooterStates_t.IDLE;
+
 		// This makes sure that the autonomous stops running when
         // teleop starts running. If you want the autonomous to 
         // continue until interrupted by another command, remove
@@ -238,54 +290,72 @@ public class Robot extends IterativeRobot {
         	Edges[i]=Buttons[i].isEdge();
         }
         ///drives the robot
-        myRobot.setMaxOutput(.35);
-        myRobot.arcadeDrive(leftYAxis,leftXAxis*-1,true); /// Does a thing.
+        myRobot.arcadeDrive(rightYAxis,rightXAxis*-1,true); /// Does a thing.
         
       
       
         /////does the shooter "motion" for robot
+        /*
         switch(shooterState){
         case IDLE:
-        	if(Buttons[B].isPressed()){
+        	if(controller.getRawButton(A)){
         		shooterState=ShooterStates_t.FORWARD;
         		shooterTimer=0;
         	}
+        
         case FORWARD:
-        	shooter1.set(.35);
-        	shooter2.set(.35);
+        	shooter1.set(1);
+        	shooter2.set(1);
         	if(shooterTimer++>25){
         		shooterState=ShooterStates_t.IDLE;
+        		shooter1.set(0);
+        		shooter2.set(0);
         		shooterTimer=0;
         	}
         	break;
         }	
+        */
     
         ///contrrols the solenoids that lift the robot off the ground CHNAGE THE GETRAWBUTTON TO BUTTON CLASS
        
-        if(Buttons[X].isPressed()){
+        if(controller.getRawButton(X)){
         	pickUpSolenoid.set(DoubleSolenoid.Value.kForward);
         }
-        if(Buttons[Y].isPressed()){
+        if(controller.getRawButton(Y)){
         	pickUpSolenoid.set(DoubleSolenoid.Value.kReverse);
         }
         ////moves camerservo up and down
     	double cameraMovement=0;
     	double cameraPosition=cameraServo.getPosition();
 
-        if(Buttons[LTRIGGER].isPressed() && !Buttons[RTRIGGER].isPressed()){
+        if(controller.getRawButton(LTRIGGER) && !controller.getRawButton(RTRIGGER)){
         	cameraMovement+=.05;
         	cameraPosition+=cameraMovement;
         	cameraServo.setPosition(cameraPosition);
         }
-        if(!Buttons[LTRIGGER].isPressed() && Buttons[RTRIGGER].isPressed()){
+        if(!controller.getRawButton(LTRIGGER) && controller.getRawButton(RTRIGGER)){
         	cameraMovement-=.05;
         	cameraPosition+=cameraMovement;
         	cameraServo.setPosition(cameraPosition);
         }
         //prints out sensor values in console, CHANGE LATER TO DISPLAY IN DRIVER STATION
-        System.out.println("ball sonar:"+String.valueOf(ballSonar.getRangeMM())+"  obstacle sonar:"+String.valueOf(obstacleSonar.getRangeMM()));
-        
-       
+        ///double sliderData=SmartDashboard.getNumber("DB/Slider 0", 0.0); 
+    	SmartDashboard.putString("DB/String 1", "ballSonar: "+String.valueOf(ballSonar.getRangeMM()));
+    	SmartDashboard.putString("DB/String 2", "obstacleSonar: "+String.valueOf(obstacleSonar.getRangeMM()));
+    	if(controller.getRawButton(B)){
+    		spinbar.set(-.8);
+    	}
+    	else{
+    		spinbar.set(0);
+    	}	
+    	if(controller.getRawButton(A)){
+    		shooter1.set(1);
+    		shooter2.set(1);
+    	}
+    	else{
+    		shooter1.set(0);
+    		shooter2.set(0);
+    	}	
     }
     
     
@@ -295,7 +365,5 @@ public class Robot extends IterativeRobot {
     public void testPeriodic() {
         LiveWindow.run();
     }
-    public void openGate(){
-    	
-    }
+    
 }
